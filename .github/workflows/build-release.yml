@@ -3,7 +3,7 @@ name: Build & Release Kernel (KernelSU-Next)
 on:
   push:
     branches:
-      - lineage-23.0
+      - lineage-23.2
       - copilot/add-kernelsu-next-integration
   workflow_dispatch:
     inputs:
