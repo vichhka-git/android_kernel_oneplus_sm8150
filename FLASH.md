@@ -9,7 +9,7 @@ This guide explains how to flash the custom kernel on your OnePlus SM8150 device
 | Device | Codename |
 |--------|----------|
 | OnePlus 7 | guacamoleb |
-| OnePlus 7 Pro | guacamole / fajita |
+| OnePlus 7 Pro | guacamole |
 | OnePlus 7T | hotdogb |
 | OnePlus 7T Pro | hotdog |
 

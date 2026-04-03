@@ -115,9 +115,8 @@ jobs:
           do.cleanuponabort=0
           device.name1=guacamoleb
           device.name2=guacamole
-          device.name3=fajita
-          device.name4=hotdogb
-          device.name5=hotdog
+          device.name3=hotdogb
+          device.name4=hotdog
 
           ## AnyKernel methods (DO NOT CHANGE)
           . tools/ak3-core.sh
@@ -175,7 +174,7 @@ jobs:
             | Device | Codename |
             |--------|----------|
             | OnePlus 7 | guacamoleb |
-            | OnePlus 7 Pro | guacamole / fajita |
+            | OnePlus 7 Pro | guacamole |
             | OnePlus 7T | hotdogb |
             | OnePlus 7T Pro | hotdog |
 
