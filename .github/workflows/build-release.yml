@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: 'Release tag (e.g. v1.0.0). Leave empty to skip release creation.'
+        description: 'Release tag (e.g. v1.0.0). Leave empty to auto-generate.'
         required: false
         default: ''
 
@@ -82,7 +82,7 @@ jobs:
             OBJDUMP=llvm-objdump \
             STRIP=llvm-strip
 
-      - name: Package artifacts
+      - name: Package kernel images
         run: |
           mkdir -p dist
           cp out/arch/arm64/boot/Image        dist/Image         2>/dev/null || true
@@ -97,8 +97,50 @@ jobs:
           fi
           echo "RELEASE_TAG=$TAG" >> "$GITHUB_ENV"
 
-          zip -j "dist/kernel-sm8150-kernelsu-next-${TAG}.zip" dist/Image dist/Image.gz 2>/dev/null || \
-          zip -j "dist/kernel-sm8150-kernelsu-next-${TAG}.zip" dist/Image 2>/dev/null || true
+      - name: Build AnyKernel3 flashable zip
+        run: |
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3 anykernel3
+
+          # Configure anykernel.sh for SM8150 OnePlus devices
+          cat > anykernel3/anykernel.sh << 'EOF'
+          # AnyKernel3 - OnePlus SM8150 (KernelSU-Next)
+          # osm0sis @ xda-developers
+
+          ## AnyKernel setup
+          kernel.string=OnePlus SM8150 Kernel + KernelSU-Next
+          do.devicecheck=1
+          do.modules=0
+          do.systemless=1
+          do.cleanup=1
+          do.cleanuponabort=0
+          device.name1=guacamoleb
+          device.name2=guacamole
+          device.name3=fajita
+          device.name4=hotdogb
+          device.name5=hotdog
+
+          ## AnyKernel methods (DO NOT CHANGE)
+          . tools/ak3-core.sh
+
+          ## AnyKernel install
+          split_boot
+          flash_boot
+          ## end boot install
+          EOF
+
+          # Copy the best available kernel image
+          if [ -f dist/Image.gz-dtb ]; then
+            cp dist/Image.gz-dtb anykernel3/Image.gz-dtb
+          elif [ -f dist/Image.gz ]; then
+            cp dist/Image.gz anykernel3/Image.gz
+          elif [ -f dist/Image ]; then
+            cp dist/Image anykernel3/Image
+          fi
+
+          cd anykernel3
+          zip -r9 "../dist/AnyKernel3-sm8150-kernelsu-next-${RELEASE_TAG}.zip" \
+            . \
+            -x ".git/*" "*.md" "LICENSE" "*.gitignore"
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -110,13 +152,13 @@ jobs:
             dist/Image.gz-dtb
             dist/vmlinux
             dist/System.map
-            dist/*.zip
+            dist/AnyKernel3-*.zip
           if-no-files-found: warn
 
       - name: Create GitHub Release
         if: >
-          github.event_name == 'workflow_dispatch' &&
-          github.event.inputs.release_tag != ''
+          github.ref == 'refs/heads/lineage-23.2' ||
+          github.event_name == 'workflow_dispatch'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
@@ -130,17 +172,32 @@ jobs:
             **Defconfig:** `vendor/sm8150_defconfig` + `vendor/oplus.config`
 
             ### Supported devices
-            - OnePlus 7 / 7 Pro
-            - OnePlus 7T / 7T Pro
+            | Device | Codename |
+            |--------|----------|
+            | OnePlus 7 | guacamoleb |
+            | OnePlus 7 Pro | guacamole / fajita |
+            | OnePlus 7T | hotdogb |
+            | OnePlus 7T Pro | hotdog |
+
+            ### How to flash
+            1. Download `AnyKernel3-sm8150-kernelsu-next-*.zip` from the assets below.
+            2. Boot into **TWRP** or another custom recovery.
+            3. Flash the downloaded `.zip` file.
+            4. Reboot to system.
+            5. Install the **KernelSU-Next** manager app from https://github.com/rifsxd/KernelSU-Next/releases
+            6. Open the app — it should show root access is available.
+
+            > **Full flashing guide:** see [FLASH.md](https://github.com/${{ github.repository }}/blob/lineage-23.2/FLASH.md)
 
             ### Notes
-            - KernelSU-Next is built-in. Flash via your custom recovery.
-            - `Image` / `Image.gz` can be used directly in AnyKernel3 zip.
+            - KernelSU-Next is built directly into the kernel — no patching needed.
+            - If you were previously using Magisk, disable or uninstall it first.
+            - Back up your data before flashing any kernel.
           files: |
             dist/Image
             dist/Image.gz
             dist/Image.gz-dtb
-            dist/*.zip
+            dist/AnyKernel3-*.zip
           draft: false
           prerelease: false
         env:
