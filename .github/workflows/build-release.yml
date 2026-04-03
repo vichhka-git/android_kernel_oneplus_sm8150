@@ -1,0 +1,147 @@
+name: Build & Release Kernel (KernelSU-Next)
+
+on:
+  push:
+    branches:
+      - lineage-23.2
+      - copilot/add-kernelsu-next-integration
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag (e.g. v1.0.0). Leave empty to skip release creation.'
+        required: false
+        default: ''
+
+jobs:
+  build:
+    name: Build sm8150 Kernel
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            bc \
+            bison \
+            build-essential \
+            ca-certificates \
+            clang \
+            flex \
+            git \
+            libelf-dev \
+            libssl-dev \
+            lld \
+            llvm \
+            make \
+            python3 \
+            zip \
+            gcc-aarch64-linux-gnu \
+            binutils-aarch64-linux-gnu
+
+      - name: Set build variables
+        id: vars
+        run: |
+          echo "KERNEL_VERSION=$(make kernelversion -s)" >> "$GITHUB_OUTPUT"
+          echo "BUILD_DATE=$(date +'%Y%m%d-%H%M')" >> "$GITHUB_OUTPUT"
+          CLANG_VERSION=$(clang --version | head -1)
+          echo "CLANG_VERSION=$CLANG_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Configure kernel
+        run: |
+          make O=out \
+            ARCH=arm64 \
+            CC=clang \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            LD=ld.lld \
+            AR=llvm-ar \
+            NM=llvm-nm \
+            OBJCOPY=llvm-objcopy \
+            OBJDUMP=llvm-objdump \
+            STRIP=llvm-strip \
+            vendor/sm8150_defconfig vendor/oplus.config
+
+      - name: Build kernel
+        run: |
+          make -j$(nproc) O=out \
+            ARCH=arm64 \
+            CC=clang \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            LD=ld.lld \
+            AR=llvm-ar \
+            NM=llvm-nm \
+            OBJCOPY=llvm-objcopy \
+            OBJDUMP=llvm-objdump \
+            STRIP=llvm-strip
+
+      - name: Package artifacts
+        run: |
+          mkdir -p dist
+          cp out/arch/arm64/boot/Image        dist/Image         2>/dev/null || true
+          cp out/arch/arm64/boot/Image.gz     dist/Image.gz      2>/dev/null || true
+          cp out/arch/arm64/boot/Image.gz-dtb dist/Image.gz-dtb  2>/dev/null || true
+          cp out/vmlinux                      dist/vmlinux       2>/dev/null || true
+          cp out/System.map                   dist/System.map    2>/dev/null || true
+
+          TAG="${{ github.event.inputs.release_tag }}"
+          if [ -z "$TAG" ]; then
+            TAG="kernel-${{ steps.vars.outputs.KERNEL_VERSION }}-ksu-${{ steps.vars.outputs.BUILD_DATE }}"
+          fi
+          echo "RELEASE_TAG=$TAG" >> "$GITHUB_ENV"
+
+          zip -j "dist/kernel-sm8150-kernelsu-next-${TAG}.zip" dist/Image dist/Image.gz 2>/dev/null || \
+          zip -j "dist/kernel-sm8150-kernelsu-next-${TAG}.zip" dist/Image 2>/dev/null || true
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-sm8150-kernelsu-next-${{ steps.vars.outputs.BUILD_DATE }}
+          path: |
+            dist/Image
+            dist/Image.gz
+            dist/Image.gz-dtb
+            dist/vmlinux
+            dist/System.map
+            dist/*.zip
+          if-no-files-found: warn
+
+      - name: Create GitHub Release
+        if: >
+          github.event_name == 'workflow_dispatch' &&
+          github.event.inputs.release_tag != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: "Kernel ${{ steps.vars.outputs.KERNEL_VERSION }} + KernelSU-Next (${{ steps.vars.outputs.BUILD_DATE }})"
+          body: |
+            ## OnePlus SM8150 Kernel with KernelSU-Next
+
+            **Kernel version:** `${{ steps.vars.outputs.KERNEL_VERSION }}`
+            **Build date:** `${{ steps.vars.outputs.BUILD_DATE }}`
+            **Compiler:** `${{ steps.vars.outputs.CLANG_VERSION }}`
+            **Defconfig:** `vendor/sm8150_defconfig` + `vendor/oplus.config`
+
+            ### Supported devices
+            - OnePlus 7 / 7 Pro
+            - OnePlus 7T / 7T Pro
+
+            ### Notes
+            - KernelSU-Next is built-in. Flash via your custom recovery.
+            - `Image` / `Image.gz` can be used directly in AnyKernel3 zip.
+          files: |
+            dist/Image
+            dist/Image.gz
+            dist/Image.gz-dtb
+            dist/*.zip
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
